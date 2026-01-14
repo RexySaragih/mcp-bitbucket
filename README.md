@@ -21,7 +21,7 @@ A TypeScript MCP server that enables Cursor to interact with Bitbucket Cloud rep
 | `list_pull_requests` | List PRs by status (open, merged, declined), filter by repository, author, or Jira ticket |
 | `read_pull_request` | Get PR details (title, description, status, reviewers), get PR diff/files changed, get PR comments and approvals, extract linked Jira tickets |
 | `create_pull_request` | Create PR with title, description, source/target branches, auto-generate description from commits, auto-link to Jira ticket if mentioned, set reviewers |
-| `update_pull_request` | Update PR title, description, or status, add/remove reviewers, add comments, merge PR (with merge strategy option) |
+| `update_pull_request` | Update PR title, description, or status, add/remove reviewers, add comments (general or inline line-specific), merge PR (with merge strategy option) |
 
 ### Branch Operations
 
@@ -34,9 +34,9 @@ A TypeScript MCP server that enables Cursor to interact with Bitbucket Cloud rep
 
 - Node.js 18+ (uses built-in `fetch`)
 - Bitbucket Cloud account (uses `https://api.bitbucket.org/2.0` - no URL configuration needed)
-- Authentication (choose one):
-  - **OAuth 2.0 Access Token or App Password as Bearer Token** (recommended) - only the token is needed, no username/email/URL required
-  - **App Password with Basic Auth** (legacy) - requires username + app password
+- Authentication: Atlassian API token (same as Confluence/Jira MCP servers)
+  - **Email** - your Atlassian account email
+  - **API Token** - generated from https://id.atlassian.com/manage-profile/security/api-tokens
 
 ## Setup
 
@@ -48,44 +48,24 @@ npm install
 
 ### 2. Configure environment
 
-Create a `.env` file in the project root with **one** of the following options:
-
-### Option 1: Access Token as Bearer Token (Recommended)
+Create a `.env` file in the project root:
 
 ```env
-BITBUCKET_ACCESS_TOKEN=your-access-token
+ATLASSIAN_EMAIL=your-email@example.com
+ATLASSIAN_API_TOKEN=your-api-token
+BITBUCKET_WORKSPACE=your-workspace
+BITBUCKET_REPOSITORY=your-repository
 ```
 
-**Important:** You only need the token itself - no username, email, or URL configuration needed. The server uses `https://api.bitbucket.org/2.0` automatically.
+**Authentication:**
+- `ATLASSIAN_EMAIL` - Your Atlassian account email address
+- `ATLASSIAN_API_TOKEN` - API token from https://id.atlassian.com/manage-profile/security/api-tokens
 
-To get an access token, you can use either:
+**Default Workspace/Repository (Optional):**
+- `BITBUCKET_WORKSPACE` - Default workspace name (can be omitted if provided in each tool call)
+- `BITBUCKET_REPOSITORY` - Default repository name (can be omitted if provided in each tool call)
 
-**A) OAuth 2.0 Access Token:**
-1. Go to https://bitbucket.org/account/settings/applications/
-2. Create an OAuth consumer
-3. Generate an access token with scopes: `repository:read`, `repository:write`, `pullrequest:read`, `pullrequest:write`
-4. Copy the generated access token (you won't see it again)
-
-**B) App Password (can be used as Bearer token):**
-1. Go to https://bitbucket.org/account/settings/app-passwords/
-2. Click "Create app password"
-3. Give it a label (e.g., "MCP Server")
-4. Select scopes: `repository:read`, `repository:write`, `pullrequest:read`, `pullrequest:write`
-5. Copy the generated password - you can use it directly as `BITBUCKET_ACCESS_TOKEN` (no username needed)
-
-### Option 2: App Password (Legacy)
-
-```env
-BITBUCKET_USERNAME=your-username
-BITBUCKET_APP_PASSWORD=your-app-password
-```
-
-To create an App Password:
-1. Go to https://bitbucket.org/account/settings/app-passwords/
-2. Click "Create app password"
-3. Give it a label (e.g., "MCP Server")
-4. Select scopes: `repository:read`, `repository:write`, `pullrequest:read`, `pullrequest:write`
-5. Copy the generated password (you won't see it again)
+If you set `BITBUCKET_WORKSPACE` and `BITBUCKET_REPOSITORY`, you can omit these parameters from tool calls and they'll be used automatically.
 
 ### 3. Build
 
@@ -114,24 +94,10 @@ Add the following to `~/.cursor/mcp.json`:
       "command": "node",
       "args": ["/path/to/bitbucket-mcp-server/dist/index.js"],
       "env": {
-        "BITBUCKET_ACCESS_TOKEN": "your-oauth-access-token"
-      }
-    }
-  }
-}
-```
-
-Or with App Password:
-
-```json
-{
-  "mcpServers": {
-    "bitbucket": {
-      "command": "node",
-      "args": ["/path/to/bitbucket-mcp-server/dist/index.js"],
-      "env": {
-        "BITBUCKET_USERNAME": "your-username",
-        "BITBUCKET_APP_PASSWORD": "your-app-password"
+        "ATLASSIAN_EMAIL": "your-email@example.com",
+        "ATLASSIAN_API_TOKEN": "your-api-token",
+        "BITBUCKET_WORKSPACE": "your-workspace",
+        "BITBUCKET_REPOSITORY": "your-repository"
       }
     }
   }
@@ -153,17 +119,13 @@ If you prefer to keep credentials in a `.env` file (created during setup), you c
 }
 ```
 
-Make sure your `.env` file exists in the project root with either:
+Make sure your `.env` file exists in the project root:
 
-**OAuth Token (recommended):**
 ```env
-BITBUCKET_ACCESS_TOKEN=your-oauth-access-token
-```
-
-**Or App Password (legacy):**
-```env
-BITBUCKET_USERNAME=your-username
-BITBUCKET_APP_PASSWORD=your-app-password
+ATLASSIAN_EMAIL=your-email@example.com
+ATLASSIAN_API_TOKEN=your-api-token
+BITBUCKET_WORKSPACE=your-workspace
+BITBUCKET_REPOSITORY=your-repository
 ```
 
 > **Note:** Replace `/path/to/bitbucket-mcp-server` with the actual path to this project. Environment variables in `mcp.json` take precedence over `.env` if both are provided.
@@ -179,80 +141,80 @@ BITBUCKET_APP_PASSWORD=your-app-password
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if `BITBUCKET_WORKSPACE` and `BITBUCKET_REPOSITORY` are set in environment variables.
+
 ### read_branch
 
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "branch": "feature/new-feature",
   "compareWithMain": true
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
+
 ### read_commit
 
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "commitHash": "abc123def456",
   "includeDiff": true
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
+
 ### read_file
 
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "filePath": "src/index.ts",
   "ref": "main"
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
+
 ### search_code
 
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "query": "function myFunction",
   "filePath": "*.ts",
   "branch": "main"
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
+
 ### list_pull_requests
 
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "state": "OPEN",
   "author": "username"
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
+
 ### read_pull_request
 
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "pullRequestId": 123,
   "includeDiff": true,
   "includeComments": true
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
+
 ### create_pull_request
 
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "title": "Add new feature",
   "description": "Implements PROJ-123",
   "sourceBranch": "feature/new-feature",
@@ -262,53 +224,71 @@ BITBUCKET_APP_PASSWORD=your-app-password
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
+
 ### update_pull_request
 
+**General comment:**
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "pullRequestId": 123,
-  "title": "Updated title",
-  "state": "MERGED",
-  "mergeStrategy": "squash",
   "comment": "Great work!"
 }
 ```
 
-### create_branch
-
+**Inline comment on specific line:**
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
+  "pullRequestId": 123,
+  "comment": "Consider adding error handling here",
+  "commentFilePath": "src/models/trex/BiFastDetail.ts",
+  "commentLineNumber": 42
+}
+```
+
+**Update PR and merge:**
+```json
+{
+  "pullRequestId": 123,
+  "title": "Updated title",
+  "state": "MERGED",
+  "mergeStrategy": "squash"
+}
+```
+
+> **Note:** `workspace` and `repository` are optional if `BITBUCKET_WORKSPACE` and `BITBUCKET_REPOSITORY` are set in environment variables.
+
+### create_branch
+
+**From Jira ticket:**
+```json
+{
   "fromJiraTicket": "PROJ-123",
   "description": "implement new feature",
   "sourceBranch": "main"
 }
 ```
 
-Or with explicit name:
-
+**With explicit name:**
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "name": "feature/my-branch",
   "sourceBranch": "main"
 }
 ```
 
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
+
 ### delete_branch
 
 ```json
 {
-  "workspace": "myworkspace",
-  "repository": "myrepo",
   "branchName": "feature/old-feature",
   "onlyIfMerged": true
 }
 ```
+
+> **Note:** `workspace` and `repository` are optional if set in environment variables.
 
 ## Scripts
 
@@ -321,8 +301,9 @@ Or with explicit name:
 ## Notes
 
 - **API Endpoint:** The server uses Bitbucket Cloud API at `https://api.bitbucket.org/2.0` (hardcoded, no configuration needed)
-- **Authentication:** Either `BITBUCKET_ACCESS_TOKEN` (Bearer token - recommended) or both `BITBUCKET_USERNAME` and `BITBUCKET_APP_PASSWORD` (Basic auth) must be provided
-- **Token Only:** When using `BITBUCKET_ACCESS_TOKEN`, you only need the token itself - no username, email, or URL required
+- **Authentication:** Uses `ATLASSIAN_EMAIL` + `ATLASSIAN_API_TOKEN` with Basic auth (same pattern as Confluence/Jira MCP servers)
+- **Default Workspace/Repository:** Set `BITBUCKET_WORKSPACE` and `BITBUCKET_REPOSITORY` in environment to make them optional in tool calls
+- **Inline Comments:** Use `commentFilePath` and `commentLineNumber` together with `comment` to create line-specific PR comments
 - Server uses stdio transport only; no HTTP port is opened
 - Branch names are automatically validated according to Bitbucket rules
 - Jira ticket references (e.g., `PROJ-123`) are automatically extracted from commit messages and PR descriptions
