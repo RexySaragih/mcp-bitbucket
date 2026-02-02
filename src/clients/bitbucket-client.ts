@@ -79,11 +79,11 @@ export class BitbucketClient {
         name: branch?.name,
         target: branch?.target
           ? {
-              hash: branch.target.hash,
-              date: branch.target.date,
-              author: branch.target.author,
-              message: branch.target.message,
-            }
+            hash: branch.target.hash,
+            date: branch.target.date,
+            author: branch.target.author,
+            message: branch.target.message,
+          }
           : undefined,
         raw: branch,
       })),
@@ -119,11 +119,11 @@ export class BitbucketClient {
         name: tag?.name,
         target: tag?.target
           ? {
-              hash: tag.target.hash,
-              date: tag.target.date,
-              author: tag.target.author,
-              message: tag.target.message,
-            }
+            hash: tag.target.hash,
+            date: tag.target.date,
+            author: tag.target.author,
+            message: tag.target.message,
+          }
           : undefined,
         raw: tag,
       })),
@@ -148,11 +148,11 @@ export class BitbucketClient {
       name: data?.name,
       target: data?.target
         ? {
-            hash: data.target.hash,
-            date: data.target.date,
-            author: data.target.author,
-            message: data.target.message,
-          }
+          hash: data.target.hash,
+          date: data.target.date,
+          author: data.target.author,
+          message: data.target.message,
+        }
         : undefined,
       raw: data,
     };
@@ -703,10 +703,10 @@ export class BitbucketClient {
       updatedOn: data?.updated_on,
       inline: data?.inline
         ? {
-            path: data.inline.path,
-            to: data.inline.to,
-            from: data.inline.from,
-          }
+          path: data.inline.path,
+          to: data.inline.to,
+          from: data.inline.from,
+        }
         : undefined,
       raw: data,
     };
@@ -748,11 +748,11 @@ export class BitbucketClient {
       name: data?.name,
       target: data?.target
         ? {
-            hash: data.target.hash,
-            date: data.target.date,
-            author: data.target.author,
-            message: data.target.message,
-          }
+          hash: data.target.hash,
+          date: data.target.date,
+          author: data.target.author,
+          message: data.target.message,
+        }
         : undefined,
       raw: data,
     };
@@ -770,6 +770,93 @@ export class BitbucketClient {
     await this.assertOk(response, `Failed to delete branch ${branchName}`);
   }
 
+  // File operations
+  async writeFile(params: {
+    workspace: string;
+    repository: string;
+    filePath: string;
+    content: string;
+    branch: string;
+    message: string;
+    author?: string;
+  }): Promise<Commit> {
+    // Bitbucket API uses form-data for file uploads
+    const formData = new URLSearchParams();
+    formData.append(params.filePath, params.content);
+    formData.append('message', params.message);
+    formData.append('branch', params.branch);
+    if (params.author) {
+      formData.append('author', params.author);
+    }
+
+    const response = await fetch(
+      `${this.apiBase}/repositories/${params.workspace}/${params.repository}/src`,
+      {
+        method: 'POST',
+        headers: {
+          ...this.headers(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      },
+    );
+
+    await this.assertOk(response, `Failed to write file ${params.filePath}`);
+
+    // The response doesn't return commit details directly, so we need to fetch the latest commit
+    const commits = await this.listCommits(params.workspace, params.repository, params.branch, 1, 1);
+    if (commits.values.length === 0) {
+      throw new Error('Failed to retrieve commit information after file write');
+    }
+
+    return commits.values[0];
+  }
+
+  async commitFiles(params: {
+    workspace: string;
+    repository: string;
+    branch: string;
+    message: string;
+    files: Array<{ path: string; content: string }>;
+    author?: string;
+  }): Promise<Commit> {
+    // Bitbucket API uses form-data for file uploads
+    const formData = new URLSearchParams();
+
+    // Add each file to the form data
+    for (const file of params.files) {
+      formData.append(file.path, file.content);
+    }
+
+    formData.append('message', params.message);
+    formData.append('branch', params.branch);
+    if (params.author) {
+      formData.append('author', params.author);
+    }
+
+    const response = await fetch(
+      `${this.apiBase}/repositories/${params.workspace}/${params.repository}/src`,
+      {
+        method: 'POST',
+        headers: {
+          ...this.headers(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      },
+    );
+
+    await this.assertOk(response, `Failed to commit files`);
+
+    // The response doesn't return commit details directly, so we need to fetch the latest commit
+    const commits = await this.listCommits(params.workspace, params.repository, params.branch, 1, 1);
+    if (commits.values.length === 0) {
+      throw new Error('Failed to retrieve commit information after committing files');
+    }
+
+    return commits.values[0];
+  }
+
   // Helper methods
   private mapPullRequest(data: any): PullRequest {
     return {
@@ -779,27 +866,27 @@ export class BitbucketClient {
       state: data?.state,
       source: data?.source
         ? {
-            branch: data.source.branch ? { name: data.source.branch.name } : undefined,
-            repository: data.source.repository
-              ? { fullName: data.source.repository.full_name }
-              : undefined,
-            commit: data.source.commit ? { hash: data.source.commit.hash } : undefined,
-          }
+          branch: data.source.branch ? { name: data.source.branch.name } : undefined,
+          repository: data.source.repository
+            ? { fullName: data.source.repository.full_name }
+            : undefined,
+          commit: data.source.commit ? { hash: data.source.commit.hash } : undefined,
+        }
         : undefined,
       destination: data?.destination
         ? {
-            branch: data.destination.branch ? { name: data.destination.branch.name } : undefined,
-            repository: data.destination.repository
-              ? { fullName: data.destination.repository.full_name }
-              : undefined,
-          }
+          branch: data.destination.branch ? { name: data.destination.branch.name } : undefined,
+          repository: data.destination.repository
+            ? { fullName: data.destination.repository.full_name }
+            : undefined,
+        }
         : undefined,
       author: data?.author
         ? {
-            displayName: data.author.display_name,
-            username: data.author.username,
-            uuid: data.author.uuid,
-          }
+          displayName: data.author.display_name,
+          username: data.author.username,
+          uuid: data.author.uuid,
+        }
         : undefined,
       createdOn: data?.created_on,
       updatedOn: data?.updated_on,

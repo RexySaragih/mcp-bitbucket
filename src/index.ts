@@ -45,6 +45,14 @@ import {
   handleDeleteBranch,
 } from './tools/branch.js';
 
+// File operation tools
+import {
+  writeFileTool,
+  commitFilesTool,
+  handleWriteFile,
+  handleCommitFiles,
+} from './tools/file-operations.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, '../.env') });
 
@@ -88,6 +96,9 @@ async function start() {
       // Branch tools
       createBranchTool,
       deleteBranchTool,
+      // File operation tools
+      writeFileTool,
+      commitFilesTool,
     ];
 
     const toolHandlers: Record<string, (args: unknown) => Promise<ToolResponse>> = {
@@ -105,6 +116,9 @@ async function start() {
       // Branch handlers
       create_branch: (args) => handleCreateBranch(client, args),
       delete_branch: (args) => handleDeleteBranch(client, args),
+      // File operation handlers
+      write_file: (args) => handleWriteFile(client, args),
+      commit_files: (args) => handleCommitFiles(client, args),
     };
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));

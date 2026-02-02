@@ -30,6 +30,13 @@ A TypeScript MCP server that enables Cursor to interact with Bitbucket Cloud rep
 | `create_branch` | Create branch from source branch, auto-name from Jira ticket: `feature/PROJ-123-description`, validate branch name format |
 | `delete_branch` | Delete branch (with safety checks), clean up merged feature branches |
 
+### File Operations
+
+| Tool | Description |
+|------|-------------|
+| `write_file` | Write or update a single file in the repository, creates a commit with the change on the specified branch |
+| `commit_files` | Commit multiple files in a single atomic commit, useful for related changes across multiple files |
+
 ## Prerequisites
 
 - Node.js 18+ (uses built-in `fetch`)
@@ -289,6 +296,40 @@ BITBUCKET_REPOSITORY=your-repository
 ```
 
 > **Note:** `workspace` and `repository` are optional if set in environment variables.
+
+### write_file
+
+```json
+{
+  "filePath": "src/components/NewComponent.tsx",
+  "content": "export const NewComponent = () => { return <div>Hello</div>; };",
+  "branch": "feature/new-component",
+  "message": "Add new component"
+}
+```
+
+> **Note:** `workspace` and `repository` are optional if set in environment variables. The `author` parameter is also optional and defaults to the authenticated user.
+
+### commit_files
+
+```json
+{
+  "branch": "feature/multi-file-update",
+  "message": "Update multiple configuration files",
+  "files": [
+    {
+      "path": "package.json",
+      "content": "{\"name\": \"my-app\", \"version\": \"1.0.0\"}"
+    },
+    {
+      "path": "tsconfig.json",
+      "content": "{\"compilerOptions\": {\"strict\": true}}"
+    }
+  ]
+}
+```
+
+> **Note:** `workspace` and `repository` are optional if set in environment variables. The `author` parameter is also optional and defaults to the authenticated user.
 
 ## Scripts
 
