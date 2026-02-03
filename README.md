@@ -4,6 +4,31 @@ A TypeScript MCP server that enables Cursor to interact with Bitbucket Cloud rep
 
 ## Features
 
+### Smart Parameter Handling
+
+The MCP server provides intelligent parameter handling with helpful error messages:
+
+- **URL Extraction**: Automatically extracts workspace and repository from Bitbucket URLs
+- **Environment Fallbacks**: Uses `BITBUCKET_WORKSPACE` and `BITBUCKET_REPOSITORY` environment variables as defaults
+- **Helpful Error Messages**: When parameters are missing, the agent receives clear instructions on how to provide them
+
+**Priority Order**: Direct parameters > URL extraction > Environment variables
+
+**Example Error Message**:
+```
+Missing required parameter(s): workspace, repository.
+
+Please provide them in one of these ways:
+1. Extract from a Bitbucket URL (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)
+   - Use the 'prUrl' or 'repoUrl' parameter with the full URL
+2. Provide directly as parameters: workspace="<workspace>", repository="<repository>"
+3. Set environment variables: BITBUCKET_WORKSPACE and BITBUCKET_REPOSITORY
+
+💡 Tip: If you have a Bitbucket URL, extract the workspace and repository from it and provide them as parameters.
+```
+
+This allows agents to intelligently handle missing parameters by asking the user for a URL or extracting the information themselves.
+
 ### Repository Operations
 
 | Tool | Description |
@@ -139,6 +164,33 @@ BITBUCKET_REPOSITORY=your-repository
 
 ## Tool Usage Examples
 
+### Using URLs for Workspace/Repository
+
+All tools support extracting workspace and repository from Bitbucket URLs. This is especially useful when working with pull requests:
+
+**Using PR URL:**
+```json
+{
+  "prUrl": "https://bitbucket.org/myworkspace/myrepo/pull-requests/123",
+  "includeDiff": true
+}
+```
+
+**Using direct parameters:**
+```json
+{
+  "workspace": "myworkspace",
+  "repository": "myrepo",
+  "pullRequestId": 123,
+  "includeDiff": true
+}
+```
+
+Both approaches work identically. The URL extraction automatically parses:
+- `workspace` from the URL path
+- `repository` from the URL path
+- `pullRequestId` from the URL path (for PR operations)
+
 ### read_repository
 
 ```json
@@ -208,6 +260,16 @@ BITBUCKET_REPOSITORY=your-repository
 
 ### read_pull_request
 
+**Using PR URL (recommended):**
+```json
+{
+  "prUrl": "https://bitbucket.org/myworkspace/myrepo/pull-requests/123",
+  "includeDiff": true,
+  "includeComments": true
+}
+```
+
+**Using direct parameters:**
 ```json
 {
   "pullRequestId": 123,
@@ -216,7 +278,7 @@ BITBUCKET_REPOSITORY=your-repository
 }
 ```
 
-> **Note:** `workspace` and `repository` are optional if set in environment variables.
+> **Note:** When using `prUrl`, workspace, repository, and pullRequestId are automatically extracted. Direct parameters are optional if set in environment variables.
 
 ### create_pull_request
 
@@ -235,7 +297,15 @@ BITBUCKET_REPOSITORY=your-repository
 
 ### update_pull_request
 
-**General comment:**
+**General comment using PR URL:**
+```json
+{
+  "prUrl": "https://bitbucket.org/myworkspace/myrepo/pull-requests/123",
+  "comment": "Great work!"
+}
+```
+
+**General comment using direct parameters:**
 ```json
 {
   "pullRequestId": 123,
@@ -246,7 +316,7 @@ BITBUCKET_REPOSITORY=your-repository
 **Inline comment on specific line:**
 ```json
 {
-  "pullRequestId": 123,
+  "prUrl": "https://bitbucket.org/myworkspace/myrepo/pull-requests/123",
   "comment": "Consider adding error handling here",
   "commentFilePath": "src/models/trex/BiFastDetail.ts",
   "commentLineNumber": 42
@@ -256,14 +326,14 @@ BITBUCKET_REPOSITORY=your-repository
 **Update PR and merge:**
 ```json
 {
-  "pullRequestId": 123,
+  "prUrl": "https://bitbucket.org/myworkspace/myrepo/pull-requests/123",
   "title": "Updated title",
   "state": "MERGED",
   "mergeStrategy": "squash"
 }
 ```
 
-> **Note:** `workspace` and `repository` are optional if `BITBUCKET_WORKSPACE` and `BITBUCKET_REPOSITORY` are set in environment variables.
+> **Note:** `prUrl` automatically extracts workspace, repository, and pullRequestId. Alternatively, provide them directly or use environment variables.
 
 ### create_branch
 

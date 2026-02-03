@@ -1,24 +1,6 @@
 import z from 'zod';
 import { BitbucketClient } from '../clients/bitbucket-client.js';
-
-// Helper function to get workspace/repository with env fallbacks
-function getWorkspaceAndRepo(args: { workspace?: string; repository?: string }) {
-  const workspace = args.workspace || process.env.BITBUCKET_WORKSPACE;
-  const repository = args.repository || process.env.BITBUCKET_REPOSITORY;
-
-  if (!workspace) {
-    throw new Error(
-      'Workspace is required. Provide it as a parameter or set BITBUCKET_WORKSPACE environment variable.',
-    );
-  }
-  if (!repository) {
-    throw new Error(
-      'Repository is required. Provide it as a parameter or set BITBUCKET_REPOSITORY environment variable.',
-    );
-  }
-
-  return { workspace, repository };
-}
+import { getWorkspaceAndRepo } from '../utils/url-parser.js';
 
 // Schema definitions
 export const writeFileSchema = z.object({

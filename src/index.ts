@@ -39,9 +39,7 @@ import {
 
 // Branch tools
 import {
-  createBranchTool,
   deleteBranchTool,
-  handleCreateBranch,
   handleDeleteBranch,
 } from './tools/branch.js';
 
@@ -94,7 +92,6 @@ async function start() {
       createPullRequestTool,
       updatePullRequestTool,
       // Branch tools
-      createBranchTool,
       deleteBranchTool,
       // File operation tools
       writeFileTool,
@@ -114,7 +111,6 @@ async function start() {
       create_pull_request: (args) => handleCreatePullRequest(client, args),
       update_pull_request: (args) => handleUpdatePullRequest(client, args),
       // Branch handlers
-      create_branch: (args) => handleCreateBranch(client, args),
       delete_branch: (args) => handleDeleteBranch(client, args),
       // File operation handlers
       write_file: (args) => handleWriteFile(client, args),

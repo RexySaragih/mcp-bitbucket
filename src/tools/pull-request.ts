@@ -1,44 +1,29 @@
 import z from 'zod';
 import { BitbucketClient } from '../clients/bitbucket-client.js';
-
-// Helper function to get workspace/repository with env fallbacks
-function getWorkspaceAndRepo(args: { workspace?: string; repository?: string }) {
-  const workspace = args.workspace || process.env.BITBUCKET_WORKSPACE;
-  const repository = args.repository || process.env.BITBUCKET_REPOSITORY;
-
-  if (!workspace) {
-    throw new Error(
-      'Workspace is required. Provide it as a parameter or set BITBUCKET_WORKSPACE environment variable.',
-    );
-  }
-  if (!repository) {
-    throw new Error(
-      'Repository is required. Provide it as a parameter or set BITBUCKET_REPOSITORY environment variable.',
-    );
-  }
-
-  return { workspace, repository };
-}
+import { extractFromBitbucketUrl, getWorkspaceAndRepo } from '../utils/url-parser.js';
 
 // Schema definitions
 export const listPullRequestsSchema = z.object({
-  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var)'),
-  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var)'),
+  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)'),
+  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)'),
+  prUrl: z.string().optional().describe('Pull request URL to extract workspace/repository from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)'),
   state: z.enum(['OPEN', 'MERGED', 'DECLINED', 'SUPERSEDED']).optional().describe('Filter by PR state'),
   author: z.string().optional().describe('Filter by author username'),
 });
 
 export const readPullRequestSchema = z.object({
-  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var)'),
-  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var)'),
-  pullRequestId: z.number().describe('Pull request ID'),
+  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)'),
+  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)'),
+  prUrl: z.string().optional().describe('Pull request URL to extract workspace/repository/PR ID from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)'),
+  pullRequestId: z.number().optional().describe('Pull request ID (can be extracted from prUrl if provided)'),
   includeDiff: z.boolean().optional().describe('Include diff in response'),
   includeComments: z.boolean().optional().describe('Include comments in response'),
 });
 
 export const createPullRequestSchema = z.object({
-  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var)'),
-  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var)'),
+  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)'),
+  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)'),
+  prUrl: z.string().optional().describe('Pull request URL to extract workspace/repository from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)'),
   title: z.string().describe('PR title'),
   description: z.string().optional().describe('PR description'),
   sourceBranch: z.string().describe('Source branch name'),
@@ -49,9 +34,10 @@ export const createPullRequestSchema = z.object({
 });
 
 export const updatePullRequestSchema = z.object({
-  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var)'),
-  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var)'),
-  pullRequestId: z.number().describe('Pull request ID'),
+  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)'),
+  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)'),
+  prUrl: z.string().optional().describe('Pull request URL to extract workspace/repository/PR ID from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)'),
+  pullRequestId: z.number().optional().describe('Pull request ID (can be extracted from prUrl if provided)'),
   title: z.string().optional().describe('Update PR title'),
   description: z.string().optional().describe('Update PR description'),
   reviewers: z.array(z.string()).optional().describe('Update reviewers (replaces existing)'),
@@ -72,11 +58,15 @@ export const listPullRequestsTool = {
     properties: {
       workspace: {
         type: 'string',
-        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var)',
+        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)',
       },
       repository: {
         type: 'string',
-        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var)',
+        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)',
+      },
+      prUrl: {
+        type: 'string',
+        description: 'Pull request URL to extract workspace/repository from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)',
       },
       state: {
         type: 'string',
@@ -92,40 +82,48 @@ export const listPullRequestsTool = {
 export const readPullRequestTool = {
   name: 'read_pull_request',
   description:
-    'Get PR details including title, description, status, reviewers, diff, comments, and approvals. Extracts linked Jira tickets from PR description.',
+    'Get PR details including title, description, status, reviewers, diff, comments, and approvals. Extracts linked Jira tickets from PR description. Can extract workspace/repository/PR ID from a PR URL.',
   inputSchema: {
     type: 'object',
     properties: {
       workspace: {
         type: 'string',
-        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var)',
+        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)',
       },
       repository: {
         type: 'string',
-        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var)',
+        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)',
       },
-      pullRequestId: { type: 'number', description: 'Pull request ID' },
+      prUrl: {
+        type: 'string',
+        description: 'Pull request URL to extract workspace/repository/PR ID from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)',
+      },
+      pullRequestId: { type: 'number', description: 'Pull request ID (can be extracted from prUrl if provided)' },
       includeDiff: { type: 'boolean', description: 'Include diff in response' },
       includeComments: { type: 'boolean', description: 'Include comments in response' },
     },
-    required: ['pullRequestId'],
+    required: [],
   },
 };
 
 export const createPullRequestTool = {
   name: 'create_pull_request',
   description:
-    'Create PR with title, description, source/target branches. Auto-generate description from commits and auto-link to Jira ticket if mentioned.',
+    'Create PR with title, description, source/target branches. Auto-generate description from commits and auto-link to Jira ticket if mentioned. Can extract workspace/repository from a PR URL.',
   inputSchema: {
     type: 'object',
     properties: {
       workspace: {
         type: 'string',
-        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var)',
+        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)',
       },
       repository: {
         type: 'string',
-        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var)',
+        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)',
+      },
+      prUrl: {
+        type: 'string',
+        description: 'Pull request URL to extract workspace/repository from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)',
       },
       title: { type: 'string', description: 'PR title' },
       description: { type: 'string', description: 'PR description' },
@@ -152,19 +150,23 @@ export const createPullRequestTool = {
 export const updatePullRequestTool = {
   name: 'update_pull_request',
   description:
-    'Update PR title, description, or status. Add/remove reviewers, add comments (general or inline line-specific), or merge PR with merge strategy option. For inline comments on specific lines, provide comment, commentFilePath, and commentLineNumber together.',
+    'Update PR title, description, or status. Add/remove reviewers, add comments (general or inline line-specific), or merge PR with merge strategy option. For inline comments on specific lines, provide comment, commentFilePath, and commentLineNumber together. Can extract workspace/repository/PR ID from a PR URL.',
   inputSchema: {
     type: 'object',
     properties: {
       workspace: {
         type: 'string',
-        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var)',
+        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)',
       },
       repository: {
         type: 'string',
-        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var)',
+        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)',
       },
-      pullRequestId: { type: 'number', description: 'Pull request ID' },
+      prUrl: {
+        type: 'string',
+        description: 'Pull request URL to extract workspace/repository/PR ID from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)',
+      },
+      pullRequestId: { type: 'number', description: 'Pull request ID (can be extracted from prUrl if provided)' },
       title: { type: 'string', description: 'Update PR title' },
       description: { type: 'string', description: 'Update PR description' },
       reviewers: {
@@ -198,7 +200,7 @@ export const updatePullRequestTool = {
           'Line number for inline comment (1-based). Required for line-specific comments. Must be provided together with commentFilePath.',
       },
     },
-    required: ['pullRequestId'],
+    required: [],
   },
 };
 
@@ -271,7 +273,21 @@ export async function handleReadPullRequest(
 ): Promise<{ content: { type: 'text'; text: string }[] }> {
   const parsed = readPullRequestSchema.parse(args);
   const { workspace, repository } = getWorkspaceAndRepo(parsed);
-  const { pullRequestId, includeDiff, includeComments } = parsed;
+
+  // Extract PR ID from URL if provided
+  let pullRequestId = parsed.pullRequestId;
+  if (!pullRequestId && parsed.prUrl) {
+    const extracted = extractFromBitbucketUrl(parsed.prUrl);
+    if (extracted?.prId) {
+      pullRequestId = extracted.prId;
+    }
+  }
+
+  if (!pullRequestId) {
+    throw new Error('Pull request ID is required. Provide it directly or in a PR URL.');
+  }
+
+  const { includeDiff, includeComments } = parsed;
 
   const pr = await client.getPullRequest(workspace, repository, pullRequestId);
   const jiraTickets = pr.description ? extractJiraTickets(pr.description) : [];
@@ -290,12 +306,12 @@ export async function handleReadPullRequest(
     pr.updatedOn ? `**Updated:** ${new Date(pr.updatedOn).toLocaleString()}` : '',
     pr.reviewers && pr.reviewers.length > 0
       ? `**Reviewers:** ${pr.reviewers
-          .map((r) => {
-            const name = r.displayName || r.username || 'Unknown';
-            const approved = r.approved ? ' ✓ Approved' : '';
-            return `${name}${approved}`;
-          })
-          .join(', ')}`
+        .map((r) => {
+          const name = r.displayName || r.username || 'Unknown';
+          const approved = r.approved ? ' ✓ Approved' : '';
+          return `${name}${approved}`;
+        })
+        .join(', ')}`
       : '',
     jiraTickets.length > 0 ? `**Jira Tickets:** ${jiraTickets.join(', ')}` : '',
     pr.description ? `\n## Description\n\n${pr.description}` : '',
@@ -426,8 +442,21 @@ export async function handleUpdatePullRequest(
 ): Promise<{ content: { type: 'text'; text: string }[] }> {
   const parsed = updatePullRequestSchema.parse(args);
   const { workspace, repository } = getWorkspaceAndRepo(parsed);
+
+  // Extract PR ID from URL if provided
+  let pullRequestId = parsed.pullRequestId;
+  if (!pullRequestId && parsed.prUrl) {
+    const extracted = extractFromBitbucketUrl(parsed.prUrl);
+    if (extracted?.prId) {
+      pullRequestId = extracted.prId;
+    }
+  }
+
+  if (!pullRequestId) {
+    throw new Error('Pull request ID is required. Provide it directly or in a PR URL.');
+  }
+
   const {
-    pullRequestId,
     title,
     description,
     reviewers,

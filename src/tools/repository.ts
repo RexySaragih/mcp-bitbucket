@@ -1,24 +1,6 @@
 import z from 'zod';
 import { BitbucketClient } from '../clients/bitbucket-client.js';
-
-// Helper function to get workspace/repository with env fallbacks
-function getWorkspaceAndRepo(args: { workspace?: string; repository?: string }) {
-  const workspace = args.workspace || process.env.BITBUCKET_WORKSPACE;
-  const repository = args.repository || process.env.BITBUCKET_REPOSITORY;
-
-  if (!workspace) {
-    throw new Error(
-      'Workspace is required. Provide it as a parameter or set BITBUCKET_WORKSPACE environment variable.',
-    );
-  }
-  if (!repository) {
-    throw new Error(
-      'Repository is required. Provide it as a parameter or set BITBUCKET_REPOSITORY environment variable.',
-    );
-  }
-
-  return { workspace, repository };
-}
+import { getWorkspaceAndRepo } from '../utils/url-parser.js';
 
 // Schema definitions
 export const readRepositorySchema = z.object({
@@ -233,21 +215,21 @@ export async function handleReadBranch(
     '',
     branchData.target
       ? [
-          `**Latest Commit:** \`${branchData.target.hash.substring(0, 7)}\``,
-          branchData.target.message
-            ? `**Message:** ${branchData.target.message.split('\n')[0]}`
+        `**Latest Commit:** \`${branchData.target.hash.substring(0, 7)}\``,
+        branchData.target.message
+          ? `**Message:** ${branchData.target.message.split('\n')[0]}`
+          : '',
+        branchData.target.author?.user?.displayName
+          ? `**Author:** ${branchData.target.author.user.displayName}`
+          : branchData.target.author?.raw
+            ? `**Author:** ${branchData.target.author.raw}`
             : '',
-          branchData.target.author?.user?.displayName
-            ? `**Author:** ${branchData.target.author.user.displayName}`
-            : branchData.target.author?.raw
-              ? `**Author:** ${branchData.target.author.raw}`
-              : '',
-          branchData.target.date
-            ? `**Date:** ${new Date(branchData.target.date).toLocaleString()}`
-            : '',
-        ]
-          .filter(Boolean)
-          .join('\n')
+        branchData.target.date
+          ? `**Date:** ${new Date(branchData.target.date).toLocaleString()}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
       : 'No commit information available',
   ].join('\n');
 
@@ -410,8 +392,8 @@ export async function handleSearchCode(
         '',
         lines.length > 0
           ? lines
-              .map((l) => `  ${l.line}: ${l.segment || ''}`)
-              .join('\n')
+            .map((l) => `  ${l.line}: ${l.segment || ''}`)
+            .join('\n')
           : 'No content preview available',
       ].join('\n');
     }),
