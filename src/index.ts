@@ -31,10 +31,12 @@ import {
   readPullRequestTool,
   createPullRequestTool,
   updatePullRequestTool,
+  replyToCommentTool,
   handleListPullRequests,
   handleReadPullRequest,
   handleCreatePullRequest,
   handleUpdatePullRequest,
+  handleReplyToComment,
 } from './tools/pull-request.js';
 
 // Branch tools
@@ -91,6 +93,7 @@ async function start() {
       readPullRequestTool,
       createPullRequestTool,
       updatePullRequestTool,
+      replyToCommentTool,
       // Branch tools
       deleteBranchTool,
       // File operation tools
@@ -110,6 +113,7 @@ async function start() {
       read_pull_request: (args) => handleReadPullRequest(client, args),
       create_pull_request: (args) => handleCreatePullRequest(client, args),
       update_pull_request: (args) => handleUpdatePullRequest(client, args),
+      reply_to_comment: (args) => handleReplyToComment(client, args),
       // Branch handlers
       delete_branch: (args) => handleDeleteBranch(client, args),
       // File operation handlers

@@ -158,6 +158,9 @@ export interface PullRequestComment {
     to?: number;
     from?: number;
   };
+  parent?: {
+    id?: number;
+  };
   raw?: Record<string, unknown>;
 }
 

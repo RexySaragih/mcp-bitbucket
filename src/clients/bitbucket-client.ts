@@ -530,22 +530,32 @@ export class BitbucketClient {
     repository: string,
     pullRequestId: number,
   ): Promise<PullRequestComment[]> {
-    const response = await fetch(
-      `${this.apiBase}/repositories/${workspace}/${repository}/pullrequests/${pullRequestId}/comments`,
-      { headers: this.headers() },
-    );
+    const allComments: PullRequestComment[] = [];
+    let url: string | null = `${this.apiBase}/repositories/${workspace}/${repository}/pullrequests/${pullRequestId}/comments`;
 
-    await this.assertOk(response, `Failed to fetch comments for pull request ${pullRequestId}`);
-    const data = (await response.json()) as any;
+    // Fetch all pages of comments
+    while (url) {
+      const response = await fetch(url, { headers: this.headers() });
+      await this.assertOk(response, `Failed to fetch comments for pull request ${pullRequestId}`);
+      const data = (await response.json()) as any;
 
-    return (data?.values || []).map((comment: any) => ({
-      id: comment?.id,
-      content: comment?.content,
-      author: comment?.user,
-      createdOn: comment?.created_on,
-      updatedOn: comment?.updated_on,
-      raw: comment,
-    }));
+      const comments = (data?.values || []).map((comment: any) => ({
+        id: comment?.id,
+        content: comment?.content,
+        author: comment?.user,
+        createdOn: comment?.created_on,
+        updatedOn: comment?.updated_on,
+        parent: comment?.parent ? { id: comment.parent.id } : undefined,
+        raw: comment,
+      }));
+
+      allComments.push(...comments);
+
+      // Move to next page if available
+      url = data?.next || null;
+    }
+
+    return allComments;
   }
 
   async createPullRequest(params: CreatePullRequestParams): Promise<PullRequest> {
@@ -708,6 +718,61 @@ export class BitbucketClient {
           from: data.inline.from,
         }
         : undefined,
+      raw: data,
+    };
+  }
+
+  async replyToPullRequestComment(
+    workspace: string,
+    repository: string,
+    pullRequestId: number,
+    parentCommentId: number,
+    content: string,
+  ): Promise<PullRequestComment> {
+    const body: Record<string, unknown> = {
+      content: {
+        raw: content,
+      },
+      parent: {
+        id: parentCommentId,
+      },
+    };
+
+    console.error(`Creating REPLY to comment ID: ${parentCommentId}`);
+    console.error('Creating reply with body:', JSON.stringify(body, null, 2));
+
+    const response = await fetch(
+      `${this.apiBase}/repositories/${workspace}/${repository}/pullrequests/${pullRequestId}/comments`,
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error(`Reply API Error (${response.status}):`, errorText);
+      console.error('Request body:', JSON.stringify(body, null, 2));
+      throw new Error(`Failed to reply to comment: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = (await response.json()) as any;
+
+    return {
+      id: data?.id,
+      content: data?.content,
+      author: data?.user,
+      createdOn: data?.created_on,
+      updatedOn: data?.updated_on,
+      inline: data?.inline
+        ? {
+          path: data.inline.path,
+          to: data.inline.to,
+          from: data.inline.from,
+        }
+        : undefined,
+      parent: data?.parent ? { id: data.parent.id } : undefined,
       raw: data,
     };
   }

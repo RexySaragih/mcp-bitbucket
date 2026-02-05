@@ -48,6 +48,15 @@ export const updatePullRequestSchema = z.object({
   commentLineNumber: z.number().optional().describe('Line number for line-specific comment (required if commentFilePath is provided)'),
 });
 
+export const replyToCommentSchema = z.object({
+  workspace: z.string().optional().describe('Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)'),
+  repository: z.string().optional().describe('Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)'),
+  prUrl: z.string().optional().describe('Pull request URL to extract workspace/repository/PR ID from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)'),
+  pullRequestId: z.number().optional().describe('Pull request ID (can be extracted from prUrl if provided)'),
+  parentCommentId: z.number().describe('ID of the comment to reply to'),
+  content: z.string().describe('Reply content'),
+});
+
 // Tool definitions
 export const listPullRequestsTool = {
   name: 'list_pull_requests',
@@ -204,6 +213,33 @@ export const updatePullRequestTool = {
   },
 };
 
+export const replyToCommentTool = {
+  name: 'reply_to_comment',
+  description:
+    'Reply to an existing comment on a pull request. Creates a threaded reply to a specific comment by its ID.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      workspace: {
+        type: 'string',
+        description: 'Bitbucket workspace name (defaults to BITBUCKET_WORKSPACE env var or extracted from prUrl)',
+      },
+      repository: {
+        type: 'string',
+        description: 'Repository slug/name (defaults to BITBUCKET_REPOSITORY env var or extracted from prUrl)',
+      },
+      prUrl: {
+        type: 'string',
+        description: 'Pull request URL to extract workspace/repository/PR ID from (e.g., https://bitbucket.org/workspace/repo/pull-requests/123)',
+      },
+      pullRequestId: { type: 'number', description: 'Pull request ID (can be extracted from prUrl if provided)' },
+      parentCommentId: { type: 'number', description: 'ID of the comment to reply to' },
+      content: { type: 'string', description: 'Reply content' },
+    },
+    required: ['parentCommentId', 'content'],
+  },
+};
+
 // Helper functions
 function extractJiraTickets(text: string): string[] {
   const jiraPattern = /\b([A-Z]+-\d+)\b/g;
@@ -348,7 +384,17 @@ export async function handleReadPullRequest(
             const author = c.author?.displayName || c.author?.username || 'Unknown';
             const date = c.createdOn ? new Date(c.createdOn).toLocaleString() : '';
             const content = c.content?.raw || c.content?.markup || '(no content)';
-            return `### ${author} (${date})\n\n${content}`;
+            const commentId = `**Comment ID:** ${c.id}`;
+            const parentInfo = c.parent?.id ? `**Reply to Comment:** #${c.parent.id}` : '';
+            const inlineInfo = c.inline?.path ? `**File:** ${c.inline.path} (Line ${c.inline.to})` : '';
+            return [
+              `### ${author} (${date})`,
+              commentId,
+              parentInfo,
+              inlineInfo,
+              '',
+              content,
+            ].filter(Boolean).join('\n');
           })
           .join('\n\n---\n\n');
       }
@@ -550,3 +596,52 @@ export async function handleUpdatePullRequest(
   };
 }
 
+
+export async function handleReplyToComment(
+  client: BitbucketClient,
+  args: unknown,
+): Promise<{ content: { type: 'text'; text: string }[] }> {
+  const parsed = replyToCommentSchema.parse(args);
+  const { workspace, repository } = getWorkspaceAndRepo(parsed);
+
+  // Extract PR ID from URL if provided
+  let pullRequestId = parsed.pullRequestId;
+  if (!pullRequestId && parsed.prUrl) {
+    const extracted = extractFromBitbucketUrl(parsed.prUrl);
+    if (extracted?.prId) {
+      pullRequestId = extracted.prId;
+    }
+  }
+
+  if (!pullRequestId) {
+    throw new Error('Pull request ID is required. Provide it directly or in a PR URL.');
+  }
+
+  const { parentCommentId, content } = parsed;
+
+  const reply = await client.replyToPullRequestComment(
+    workspace,
+    repository,
+    pullRequestId,
+    parentCommentId,
+    content,
+  );
+
+  const text = [
+    `# Reply Added to Comment #${parentCommentId}`,
+    '',
+    `**Reply ID:** ${reply.id}`,
+    `**Author:** ${reply.author?.displayName || reply.author?.username || 'Unknown'}`,
+    reply.createdOn ? `**Created:** ${new Date(reply.createdOn).toLocaleString()}` : '',
+    reply.parent?.id ? `**In Reply To:** Comment #${reply.parent.id}` : '',
+    '',
+    `**Content:**`,
+    content,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return {
+    content: [{ type: 'text', text }],
+  };
+}
