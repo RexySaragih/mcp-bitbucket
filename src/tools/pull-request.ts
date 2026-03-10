@@ -44,8 +44,8 @@ export const updatePullRequestSchema = z.object({
   state: z.enum(['OPEN', 'MERGED', 'DECLINED']).optional().describe('Update PR state'),
   mergeStrategy: z.enum(['merge_commit', 'squash', 'fast_forward']).optional().describe('Merge strategy (only when merging)'),
   comment: z.string().optional().describe('Add a comment to the PR'),
-  commentFilePath: z.string().optional().describe('File path for line-specific comment (required if commentLineNumber is provided)'),
-  commentLineNumber: z.number().optional().describe('Line number for line-specific comment (required if commentFilePath is provided)'),
+  commentFilePath: z.string().optional().describe('File path for line-specific comment (must match a file path from the diff)'),
+  commentLineNumber: z.number().optional().describe('NEW file line number from the diff output (the number shown on + or context lines). Must be a line visible in the diff.'),
 });
 
 export const replyToCommentSchema = z.object({
@@ -201,12 +201,12 @@ export const updatePullRequestTool = {
       commentFilePath: {
         type: 'string',
         description:
-          'File path for inline comment (e.g., "src/models/trex/BiFastDetail.ts"). Required for line-specific comments. Must be provided together with commentLineNumber.',
+          'File path for inline comment (must match a file path from the diff, e.g., "src/models/trex/BiFastDetail.ts"). Required for line-specific comments. Must be provided together with commentLineNumber.',
       },
       commentLineNumber: {
         type: 'number',
         description:
-          'Line number for inline comment (1-based). Required for line-specific comments. Must be provided together with commentFilePath.',
+          'NEW file line number from the diff output for inline comment. Use the line number shown on + (added) or context lines in the diff. The line MUST be visible in the diff. Must be provided together with commentFilePath.',
       },
     },
     required: [],
@@ -369,6 +369,28 @@ export async function handleReadPullRequest(
           return `- ${status} ${f.path}${f.oldPath && f.oldPath !== f.path ? ` (from ${f.oldPath})` : ''} (+${f.additions || 0}/-${f.deletions || 0})`;
         })
         .join('\n');
+
+      // Render full diff with line numbers for inline comment targeting
+      text += '\n\n### Diff Content\n';
+      text += '> IMPORTANT: When posting inline comments, use the NEW line number shown below (the number after the | on + and context lines). Only lines visible in this diff can receive inline comments.\n\n';
+      for (const f of diff.files) {
+        if (!f.hunks || f.hunks.length === 0) continue;
+        text += `\n#### ${f.path}\n`;
+        text += '```diff\n';
+        for (const hunk of f.hunks) {
+          text += `${hunk.header}\n`;
+          for (const line of hunk.lines) {
+            if (line.type === 'add') {
+              text += `+  ${String(line.newLine).padStart(4)} | ${line.content}\n`;
+            } else if (line.type === 'remove') {
+              text += `-  ${String(line.oldLine).padStart(4)} | ${line.content}\n`;
+            } else {
+              text += `   ${String(line.newLine).padStart(4)} | ${line.content}\n`;
+            }
+          }
+        }
+        text += '```\n';
+      }
     } catch (error: any) {
       text += `\n\n**Note:** Could not fetch diff: ${error.message}`;
     }

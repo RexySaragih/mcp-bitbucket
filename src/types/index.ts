@@ -69,6 +69,15 @@ export interface CommitDiff {
     oldPath?: string;
     additions?: number;
     deletions?: number;
+    hunks?: Array<{
+      header: string;
+      lines: Array<{
+        type: 'add' | 'remove' | 'context';
+        content: string;
+        newLine?: number;
+        oldLine?: number;
+      }>;
+    }>;
   }>;
   stats?: {
     additions?: number;
@@ -133,6 +142,15 @@ export interface PullRequestDiff {
     oldPath?: string;
     additions?: number;
     deletions?: number;
+    hunks?: Array<{
+      header: string;
+      lines: Array<{
+        type: 'add' | 'remove' | 'context';
+        content: string;
+        newLine?: number;
+        oldLine?: number;
+      }>;
+    }>;
   }>;
   stats?: {
     additions?: number;

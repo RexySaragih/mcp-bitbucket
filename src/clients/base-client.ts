@@ -36,19 +36,37 @@ export class BaseClient {
       oldPath?: string;
       additions?: number;
       deletions?: number;
+      hunks?: Array<{
+        header: string;
+        lines: Array<{
+          type: 'add' | 'remove' | 'context';
+          content: string;
+          newLine?: number;
+          oldLine?: number;
+        }>;
+      }>;
     }> = [];
-    const lines = diffText.split('\n');
+    const rawLines = diffText.split('\n');
     let currentFile: typeof files[0] | null = null;
     let additions = 0;
     let deletions = 0;
+    let currentHunk: NonNullable<typeof files[0]['hunks']>[0] | null = null;
+    let newLineNum = 0;
+    let oldLineNum = 0;
 
-    for (const line of lines) {
+    for (const line of rawLines) {
       if (line.startsWith('diff --git')) {
+        // Finalize previous file
         if (currentFile) {
+          if (currentHunk && currentHunk.lines.length > 0) {
+            if (!currentFile.hunks) currentFile.hunks = [];
+            currentFile.hunks.push(currentHunk);
+          }
           currentFile.additions = additions;
           currentFile.deletions = deletions;
           files.push(currentFile);
         }
+        currentHunk = null;
         const match = line.match(/a\/(.+?)\s+b\/(.+?)$/);
         if (match) {
           currentFile = {
@@ -65,14 +83,54 @@ export class BaseClient {
         if (currentFile) currentFile.status = 'added';
       } else if (line.startsWith('deleted file')) {
         if (currentFile) currentFile.status = 'removed';
-      } else if (line.startsWith('+') && !line.startsWith('+++')) {
-        additions++;
-      } else if (line.startsWith('-') && !line.startsWith('---')) {
-        deletions++;
+      } else if (line.startsWith('@@')) {
+        // Save previous hunk
+        if (currentHunk && currentHunk.lines.length > 0 && currentFile) {
+          if (!currentFile.hunks) currentFile.hunks = [];
+          currentFile.hunks.push(currentHunk);
+        }
+        // Parse hunk header: @@ -oldStart,oldCount +newStart,newCount @@
+        const hunkMatch = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        oldLineNum = hunkMatch ? parseInt(hunkMatch[1], 10) : 1;
+        newLineNum = hunkMatch ? parseInt(hunkMatch[2], 10) : 1;
+        currentHunk = { header: line, lines: [] };
+      } else if (currentHunk) {
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          additions++;
+          currentHunk.lines.push({
+            type: 'add',
+            content: line.substring(1),
+            newLine: newLineNum,
+          });
+          newLineNum++;
+        } else if (line.startsWith('-') && !line.startsWith('---')) {
+          deletions++;
+          currentHunk.lines.push({
+            type: 'remove',
+            content: line.substring(1),
+            oldLine: oldLineNum,
+          });
+          oldLineNum++;
+        } else if (!line.startsWith('\\')) {
+          // Context line (starts with space or is empty)
+          currentHunk.lines.push({
+            type: 'context',
+            content: line.startsWith(' ') ? line.substring(1) : line,
+            newLine: newLineNum,
+            oldLine: oldLineNum,
+          });
+          newLineNum++;
+          oldLineNum++;
+        }
       }
     }
 
+    // Finalize last file
     if (currentFile) {
+      if (currentHunk && currentHunk.lines.length > 0) {
+        if (!currentFile.hunks) currentFile.hunks = [];
+        currentFile.hunks.push(currentHunk);
+      }
       currentFile.additions = additions;
       currentFile.deletions = deletions;
       files.push(currentFile);
