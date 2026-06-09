@@ -1,6 +1,4 @@
-import { config } from 'dotenv';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+#!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -52,9 +50,6 @@ import {
   handleWriteFile,
   handleCommitFiles,
 } from './tools/file-operations.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-config({ path: path.resolve(__dirname, '../.env') });
 
 type Content = { type: 'text'; text: string };
 type ToolResponse = { content: Content[] };
