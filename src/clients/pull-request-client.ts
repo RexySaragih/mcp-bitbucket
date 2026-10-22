@@ -92,6 +92,9 @@ export class PullRequestClient extends BaseClient {
         author: comment?.user,
         createdOn: comment?.created_on,
         updatedOn: comment?.updated_on,
+        inline: comment?.inline
+          ? { path: comment.inline.path, to: comment.inline.to, from: comment.inline.from }
+          : undefined,
         parent: comment?.parent ? { id: comment.parent.id } : undefined,
         raw: comment,
       }));

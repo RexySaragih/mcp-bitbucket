@@ -1,6 +1,7 @@
 import z from 'zod';
 import { BitbucketClient } from '../clients/bitbucket-client.js';
 import { extractFromBitbucketUrl, getWorkspaceAndRepo } from '../utils/url-parser.js';
+import type { PullRequestComment, PullRequestDiff } from '../types/index.js';
 
 // Schema definitions
 export const listPullRequestsSchema = z.object({
@@ -247,6 +248,41 @@ function extractJiraTickets(text: string): string[] {
   return matches ? [...new Set(matches)] : [];
 }
 
+type DiffLine = NonNullable<NonNullable<PullRequestDiff['files'][0]['hunks']>[0]>['lines'][0];
+
+const SNIPPET_CONTEXT_LINES = 2;
+
+function formatDiffLine(line: DiffLine): string {
+  if (line.type === 'add') return `+  ${String(line.newLine).padStart(4)} | ${line.content}`;
+  if (line.type === 'remove') return `-  ${String(line.oldLine).padStart(4)} | ${line.content}`;
+  return `   ${String(line.newLine).padStart(4)} | ${line.content}`;
+}
+
+// Returns a fenced diff block around the line a comment is attached to, or undefined if not in the diff.
+export function buildInlineSnippet(
+  diff: PullRequestDiff,
+  inline: NonNullable<PullRequestComment['inline']>,
+): string | undefined {
+  const file = diff.files.find((f) => f.path === inline.path);
+  const matchesAnchor = (line: DiffLine): boolean =>
+    inline.to !== undefined && inline.to !== null
+      ? line.newLine === inline.to
+      : inline.from !== undefined && inline.from !== null && line.oldLine === inline.from;
+
+  for (const hunk of file?.hunks ?? []) {
+    const index = hunk.lines.findIndex(matchesAnchor);
+    if (index === -1) continue;
+
+    const start = Math.max(0, index - SNIPPET_CONTEXT_LINES);
+    const window = hunk.lines.slice(start, index + SNIPPET_CONTEXT_LINES + 1);
+    const body = window
+      .map((line, i) => `${start + i === index ? '>' : ' '} ${formatDiffLine(line)}`)
+      .join('\n');
+    return `\`\`\`diff\n${body}\n\`\`\``;
+  }
+  return undefined;
+}
+
 // Handler functions
 export async function handleListPullRequests(
   client: BitbucketClient,
@@ -355,9 +391,14 @@ export async function handleReadPullRequest(
     .filter(Boolean)
     .join('\n');
 
+  let fetchedDiff: PullRequestDiff | undefined;
+  let diffAttempted = false;
+
   if (includeDiff) {
+    diffAttempted = true;
     try {
       const diff = await client.getPullRequestDiff(workspace, repository, pullRequestId);
+      fetchedDiff = diff;
       text += '\n\n## Diff\n\n';
       text += `**Files Changed:** ${diff.files.length}\n`;
       text += `**Additions:** +${diff.stats?.additions || 0}\n`;
@@ -380,13 +421,7 @@ export async function handleReadPullRequest(
         for (const hunk of f.hunks) {
           text += `${hunk.header}\n`;
           for (const line of hunk.lines) {
-            if (line.type === 'add') {
-              text += `+  ${String(line.newLine).padStart(4)} | ${line.content}\n`;
-            } else if (line.type === 'remove') {
-              text += `-  ${String(line.oldLine).padStart(4)} | ${line.content}\n`;
-            } else {
-              text += `   ${String(line.newLine).padStart(4)} | ${line.content}\n`;
-            }
+            text += `${formatDiffLine(line)}\n`;
           }
         }
         text += '```\n';
@@ -399,6 +434,13 @@ export async function handleReadPullRequest(
   if (includeComments) {
     try {
       const comments = await client.getPullRequestComments(workspace, repository, pullRequestId);
+      if (!diffAttempted && comments.some((c) => c.inline?.path)) {
+        try {
+          fetchedDiff = await client.getPullRequestDiff(workspace, repository, pullRequestId);
+        } catch {
+          // Snippets are best-effort; fall back to File and Line only.
+        }
+      }
       if (comments.length > 0) {
         text += '\n\n## Comments\n\n';
         text += comments
@@ -409,6 +451,7 @@ export async function handleReadPullRequest(
             const commentId = `**Comment ID:** ${c.id}`;
             const parentInfo = c.parent?.id ? `**Reply to Comment:** #${c.parent.id}` : '';
             const inlineInfo = c.inline?.path ? `**File:** ${c.inline.path} (Line ${c.inline.to})` : '';
+            const snippet = c.inline?.path && fetchedDiff ? buildInlineSnippet(fetchedDiff, c.inline) : undefined;
             return [
               `### ${author} (${date})`,
               commentId,
@@ -416,6 +459,7 @@ export async function handleReadPullRequest(
               inlineInfo,
               '',
               content,
+              snippet ? `\n${snippet}` : '',
             ].filter(Boolean).join('\n');
           })
           .join('\n\n---\n\n');
